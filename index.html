@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GPT Image 2.0 生成器</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;700&family=Space+Mono:wght@400;700&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #13131a;
+    --border: #2a2a3a;
+    --accent: #7c6af7;
+    --accent2: #f7c76a;
+    --text: #e8e8f0;
+    --muted: #6b6b80;
+    --success: #6af7a0;
+    --error: #f76a6a;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Noto Sans TC', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px;
+  }
+
+  .header {
+    text-align: center;
+    margin-bottom: 40px;
+  }
+
+  .header h1 {
+    font-family: 'Space Mono', monospace;
+    font-size: 2rem;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 8px;
+  }
+
+  .header p {
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    width: 100%;
+    max-width: 680px;
+    margin-bottom: 24px;
+  }
+
+  .label {
+    font-size: 0.75rem;
+    font-family: 'Space Mono', monospace;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 8px;
+    display: block;
+  }
+
+  input[type="password"],
+  input[type="text"],
+  textarea,
+  select {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-family: 'Noto Sans TC', sans-serif;
+    font-size: 0.95rem;
+    padding: 12px 16px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  input:focus, textarea:focus, select:focus {
+    border-color: var(--accent);
+  }
+
+  textarea {
+    resize: vertical;
+    min-height: 100px;
+    line-height: 1.6;
+  }
+
+  select option { background: var(--surface); }
+
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 16px;
+  }
+
+  .field { display: flex; flex-direction: column; }
+
+  button.generate {
+    width: 100%;
+    max-width: 680px;
+    padding: 16px;
+    background: linear-gradient(135deg, var(--accent), #5a4fd4);
+    border: none;
+    border-radius: 12px;
+    color: #fff;
+    font-family: 'Space Mono', monospace;
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.1s;
+    margin-bottom: 24px;
+  }
+
+  button.generate:hover { opacity: 0.9; }
+  button.generate:active { transform: scale(0.98); }
+  button.generate:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .status {
+    width: 100%;
+    max-width: 680px;
+    text-align: center;
+    font-size: 0.9rem;
+    min-height: 24px;
+    margin-bottom: 16px;
+  }
+
+  .status.loading { color: var(--accent2); }
+  .status.error { color: var(--error); }
+  .status.success { color: var(--success); }
+
+  .result {
+    width: 100%;
+    max-width: 680px;
+  }
+
+  .result img {
+    width: 100%;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    display: block;
+  }
+
+  .download-btn {
+    display: block;
+    width: 100%;
+    margin-top: 12px;
+    padding: 12px;
+    background: var(--surface);
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    color: var(--accent);
+    font-family: 'Space Mono', monospace;
+    font-size: 0.85rem;
+    text-align: center;
+    cursor: pointer;
+    transition: background 0.2s;
+    text-decoration: none;
+  }
+
+  .download-btn:hover { background: var(--accent); color: #fff; }
+
+  .spinner {
+    display: inline-block;
+    width: 18px; height: 18px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    vertical-align: middle;
+    margin-right: 8px;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .tip {
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-top: 6px;
+  }
+
+  .key-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .key-row input { flex: 1; }
+
+  .save-btn {
+    padding: 12px 16px;
+    background: var(--accent);
+    border: none;
+    border-radius: 8px;
+    color: #fff;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.8rem;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: opacity 0.2s;
+  }
+
+  .save-btn:hover { opacity: 0.85; }
+
+  .saved-tag {
+    font-size: 0.75rem;
+    color: var(--success);
+    margin-top: 6px;
+    display: none;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>GPT Image 2.0</h1>
+  <p>透過 OpenAI API 在瀏覽器直接生成圖片</p>
+</div>
+
+<div class="card">
+  <label class="label">🔑 OpenAI API Key</label>
+  <div class="key-row">
+    <input type="password" id="apiKey" placeholder="sk-proj-..." />
+    <button class="save-btn" onclick="saveKey()">記住 Key</button>
+  </div>
+  <p class="tip">Key 只存在你的瀏覽器，不會上傳到任何伺服器</p>
+  <p class="saved-tag" id="savedTag">✓ 已記住，下次自動帶入</p>
+</div>
+
+<div class="card">
+  <label class="label">✏️ 圖片描述（Prompt）</label>
+  <textarea id="prompt" placeholder="例如：台灣阿里山的茶園，清晨薄霧，油畫風格，高品質"></textarea>
+
+  <div class="row">
+    <div class="field">
+      <label class="label" style="margin-top:16px">📐 尺寸</label>
+      <select id="size">
+        <option value="1024x1024">1024×1024（正方形）</option>
+        <option value="1792x1024">1792×1024（橫向）</option>
+        <option value="1024x1792">1024×1792（直向）</option>
+      </select>
+    </div>
+    <div class="field">
+      <label class="label" style="margin-top:16px">🎨 品質</label>
+      <select id="quality">
+        <option value="standard">Standard</option>
+        <option value="hd">HD（較慢較精細）</option>
+      </select>
+    </div>
+  </div>
+</div>
+
+<button class="generate" id="generateBtn" onclick="generateImage()">
+  ✦ 生成圖片
+</button>
+
+<div class="status" id="status"></div>
+
+<div class="result" id="result"></div>
+
+<script>
+// 載入時自動帶入已儲存的 Key
+window.addEventListener('load', () => {
+  const saved = localStorage.getItem('openai_api_key');
+  if (saved) {
+    document.getElementById('apiKey').value = saved;
+    const tag = document.getElementById('savedTag');
+    tag.style.display = 'block';
+    tag.textContent = '✓ 已自動帶入儲存的 Key';
+  }
+});
+
+function saveKey() {
+  const key = document.getElementById('apiKey').value.trim();
+  if (!key) {
+    alert('請先輸入 API Key');
+    return;
+  }
+  localStorage.setItem('openai_api_key', key);
+  const tag = document.getElementById('savedTag');
+  tag.style.display = 'block';
+  tag.textContent = '✓ 已記住，下次自動帶入';
+}
+
+async function generateImage() {
+  const apiKey = document.getElementById('apiKey').value.trim();
+  const prompt = document.getElementById('prompt').value.trim();
+  const size = document.getElementById('size').value;
+  const quality = document.getElementById('quality').value;
+  const btn = document.getElementById('generateBtn');
+  const status = document.getElementById('status');
+  const result = document.getElementById('result');
+
+  if (!apiKey) {
+    status.className = 'status error';
+    status.textContent = '請輸入 OpenAI API Key';
+    return;
+  }
+  if (!prompt) {
+    status.className = 'status error';
+    status.textContent = '請輸入圖片描述';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>生成中，請稍候...';
+  status.className = 'status loading';
+  status.textContent = '正在呼叫 gpt-image-1，約需 15–30 秒...';
+  result.innerHTML = '';
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/images/generations', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-image-1',
+        prompt: prompt,
+        n: 1,
+        size: size,
+        quality: quality
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error?.message || '生成失敗');
+    }
+
+    const imageData = data.data[0];
+    let imgSrc = '';
+
+    if (imageData.url) {
+      imgSrc = imageData.url;
+    } else if (imageData.b64_json) {
+      imgSrc = 'data:image/png;base64,' + imageData.b64_json;
+    }
+
+    status.className = 'status success';
+    status.textContent = '✓ 生成成功！';
+
+    result.innerHTML = `
+      <img src="${imgSrc}" alt="Generated image" />
+      <a class="download-btn" href="${imgSrc}" download="gpt-image-${Date.now()}.png" target="_blank">
+        ↓ 下載圖片
+      </a>
+    `;
+
+  } catch (err) {
+    status.className = 'status error';
+    status.textContent = '錯誤：' + err.message;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '✦ 生成圖片';
+  }
+}
+</script>
+</body>
+</html>
