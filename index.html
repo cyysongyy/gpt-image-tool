@@ -245,8 +245,9 @@ async function generateImage() {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || '生成失敗');
     await showResult(data.data[0], prompt);
+    autoDownload();
     status.className = 'status success';
-    status.textContent = '✓ 生成成功！';
+    status.textContent = '✓ 生成成功！已自動下載到圖庫';
   } catch (err) {
     status.className = 'status error';
     status.textContent = '錯誤：' + err.message;
@@ -291,8 +292,9 @@ async function editImage() {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error?.message || '編輯失敗');
     await showResult(data.data[0], prompt);
+    autoDownload();
     status.className = 'status success';
-    status.textContent = '✓ 編輯成功！';
+    status.textContent = '✓ 編輯成功！已自動下載到圖庫';
   } catch (err) {
     status.className = 'status error';
     status.textContent = '錯誤：' + err.message;
@@ -354,6 +356,16 @@ function blobToBase64(blob) {
     reader.onloadend = () => resolve(reader.result);
     reader.readAsDataURL(blob);
   });
+}
+
+function autoDownload() {
+  if (!lastResultBase64) return;
+  const a = document.createElement('a');
+  a.href = lastResultBase64;
+  a.download = `gpt-image-${Date.now()}.png`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 function continueEdit() {
