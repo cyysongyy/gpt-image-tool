@@ -64,6 +64,7 @@
 
   .result { width: 100%; max-width: 680px; }
   .result img { width: 100%; border-radius: 12px; border: 1px solid var(--border); display: block; }
+  .mobile-tip { font-size: 0.78rem; color: var(--muted); text-align: center; margin-top: 8px; }
 
   .result-actions { display: flex; gap: 10px; margin-top: 12px; }
   .download-btn, .continue-btn { flex: 1; display: block; padding: 12px; border-radius: 8px; font-family: 'Space Mono', monospace; font-size: 0.82rem; text-align: center; cursor: pointer; transition: background 0.2s; text-decoration: none; border: 1px solid var(--accent); }
@@ -75,7 +76,23 @@
   .share-btn { display: block; width: 100%; margin-top: 10px; padding: 12px; border-radius: 8px; background: #25a244; border: none; color: #fff; font-family: 'Space Mono', monospace; font-size: 0.85rem; text-align: center; cursor: pointer; transition: opacity 0.2s; }
   .share-btn:hover { opacity: 0.85; }
 
-  .history-label { font-size: 0.75rem; color: var(--muted); margin-top: 16px; margin-bottom: 8px; font-family: 'Space Mono', monospace; }
+  /* 歷史記錄區 */
+  .history-section { width: 100%; max-width: 680px; margin-top: 32px; }
+  .history-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .history-title { font-family: 'Space Mono', monospace; font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; }
+  .clear-history-btn { padding: 4px 10px; background: transparent; border: 1px solid var(--border); border-radius: 6px; color: var(--muted); font-size: 0.75rem; cursor: pointer; transition: border-color 0.2s; }
+  .clear-history-btn:hover { border-color: var(--error); color: var(--error); }
+
+  .history-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .history-item { position: relative; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); cursor: pointer; transition: border-color 0.2s; }
+  .history-item:hover { border-color: var(--accent); }
+  .history-item img { width: 100%; display: block; }
+  .history-item-label { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.65); padding: 6px 8px; font-size: 0.72rem; color: #fff; }
+  .history-item-actions { position: absolute; top: 6px; right: 6px; display: flex; gap: 5px; opacity: 0; transition: opacity 0.2s; }
+  .history-item:hover .history-item-actions { opacity: 1; }
+  .history-action-btn { padding: 4px 8px; border: none; border-radius: 5px; font-size: 0.7rem; cursor: pointer; }
+  .history-dl-btn { background: var(--accent); color: #fff; }
+  .history-edit-btn { background: var(--accent2); color: #000; }
 
   .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 8px; }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -123,6 +140,7 @@
         <option value="1024x1024">1024×1024（正方形）</option>
         <option value="1536x1024" selected>1536×1024（橫向）</option>
         <option value="1024x1536">1024×1536（直向）</option>
+        <option value="auto">Auto（自動）</option>
       </select>
     </div>
     <div class="field">
@@ -142,13 +160,133 @@
 <div class="status" id="status"></div>
 <div class="result" id="result"></div>
 
+<!-- 歷史記錄 -->
+<div class="history-section" id="historySection" style="display:none;">
+  <div class="history-header">
+    <span class="history-title">🕐 最近生成記錄</span>
+    <button class="clear-history-btn" onclick="clearHistory()">清除記錄</button>
+  </div>
+  <div class="history-grid" id="historyGrid"></div>
+</div>
+
 <script>
+// ── IndexedDB 設定 ──
+const DB_NAME = 'gpt-image-db';
+const DB_VERSION = 1;
+const STORE_NAME = 'images';
+const MAX_HISTORY = 5;
+let db = null;
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = e => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains(STORE_NAME)) {
+        const store = d.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+        store.createIndex('ts', 'ts');
+      }
+    };
+    req.onsuccess = e => { db = e.target.result; resolve(db); };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function saveToHistory(base64, prompt) {
+  if (!db) return;
+  const tx = db.transaction(STORE_NAME, 'readwrite');
+  const store = tx.objectStore(STORE_NAME);
+  store.add({ base64, prompt, ts: Date.now() });
+  // 只保留最新 MAX_HISTORY 張
+  const all = await new Promise(r => {
+    const req = store.index('ts').openCursor(null, 'prev');
+    const items = [];
+    req.onsuccess = e => {
+      const cursor = e.target.result;
+      if (cursor) { items.push(cursor.value); cursor.continue(); }
+      else r(items);
+    };
+  });
+  if (all.length > MAX_HISTORY) {
+    all.slice(MAX_HISTORY).forEach(item => store.delete(item.id));
+  }
+  tx.oncomplete = () => loadHistory();
+}
+
+async function loadHistory() {
+  if (!db) return;
+  const tx = db.transaction(STORE_NAME, 'readonly');
+  const store = tx.objectStore(STORE_NAME);
+  const items = await new Promise(r => {
+    const req = store.index('ts').openCursor(null, 'prev');
+    const arr = [];
+    req.onsuccess = e => {
+      const cursor = e.target.result;
+      if (cursor && arr.length < MAX_HISTORY) { arr.push(cursor.value); cursor.continue(); }
+      else r(arr);
+    };
+  });
+  renderHistory(items);
+}
+
+function renderHistory(items) {
+  const section = document.getElementById('historySection');
+  const grid = document.getElementById('historyGrid');
+  if (!items.length) { section.style.display = 'none'; return; }
+  section.style.display = 'block';
+  grid.innerHTML = items.map(item => `
+    <div class="history-item">
+      <img src="${item.base64}" alt="history" onclick="useHistoryItem('${item.id}', this.src)" />
+      <div class="history-item-label">${new Date(item.ts).toLocaleString('zh-TW', {month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})} · ${(item.prompt||'').slice(0,20)}...</div>
+      <div class="history-item-actions">
+        <button class="history-action-btn history-dl-btn" onclick="downloadBase64('${item.base64}', ${item.ts})">↓</button>
+        <button class="history-action-btn history-edit-btn" onclick="useForEdit('${item.id}')">✎</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function useForEdit(id) {
+  if (!db) return;
+  const tx = db.transaction(STORE_NAME, 'readonly');
+  const item = await new Promise(r => tx.objectStore(STORE_NAME).get(parseInt(id)).onsuccess = e => r(e.target.result));
+  if (!item) return;
+  fetch(item.base64).then(r => r.blob()).then(blob => {
+    const file = new File([blob], 'history.png', { type: 'image/png' });
+    lastResultBase64 = item.base64;
+    uploadedFile = file;
+    switchTab('edit');
+    setUploadFile(file);
+    document.getElementById('prompt').value = '';
+    window.scrollTo({ top: 300, behavior: 'smooth' });
+  });
+}
+
+function downloadBase64(base64, ts) {
+  const a = document.createElement('a');
+  a.href = base64;
+  a.download = `gpt-image-${ts}.png`;
+  a.click();
+}
+
+async function clearHistory() {
+  if (!db) return;
+  const tx = db.transaction(STORE_NAME, 'readwrite');
+  tx.objectStore(STORE_NAME).clear();
+  tx.oncomplete = () => {
+    document.getElementById('historySection').style.display = 'none';
+    document.getElementById('historyGrid').innerHTML = '';
+  };
+}
+
+// ── 主程式 ──
 let currentMode = 'generate';
 let uploadedFile = null;
-// 永遠存最新一張結果的 base64，確保第N次修改以第N-1次為準
 let lastResultBase64 = null;
 
-window.addEventListener('load', () => {
+window.addEventListener('load', async () => {
+  await openDB();
+  await loadHistory();
   const saved = localStorage.getItem('openai_api_key');
   if (saved) {
     document.getElementById('apiKey').value = saved;
@@ -247,7 +385,7 @@ async function generateImage() {
     await showResult(data.data[0], prompt);
     autoDownload();
     status.className = 'status success';
-    status.textContent = '✓ 生成成功！已自動下載到圖庫';
+    status.textContent = '✓ 生成成功！已自動下載（電腦）';
   } catch (err) {
     status.className = 'status error';
     status.textContent = '錯誤：' + err.message;
@@ -294,7 +432,7 @@ async function editImage() {
     await showResult(data.data[0], prompt);
     autoDownload();
     status.className = 'status success';
-    status.textContent = '✓ 編輯成功！已自動下載到圖庫';
+    status.textContent = '✓ 編輯成功！已自動下載（電腦）';
   } catch (err) {
     status.className = 'status error';
     status.textContent = '錯誤：' + err.message;
@@ -321,27 +459,28 @@ function convertToPng(file) {
   });
 }
 
-// 把圖片轉成 base64 存在記憶體，確保「繼續修改」永遠用最新這張
 async function showResult(imageData, prompt) {
   const result = document.getElementById('result');
-  let imgSrc = imageData.url ? imageData.url : ('data:image/png;base64,' + imageData.b64_json);
+  let imgSrc = imageData.url || ('data:image/png;base64,' + imageData.b64_json);
 
-  // 統一轉成 base64 存起來（這是關鍵：每次結果都覆蓋 lastResultBase64）
   if (imageData.b64_json) {
     lastResultBase64 = 'data:image/png;base64,' + imageData.b64_json;
   } else {
-    // 從 URL 抓回來轉 base64
     try {
       const res = await fetch(imgSrc);
       const blob = await res.blob();
       lastResultBase64 = await blobToBase64(blob);
     } catch(e) {
-      lastResultBase64 = imgSrc; // fallback
+      lastResultBase64 = imgSrc;
     }
   }
 
+  // 存到 IndexedDB
+  await saveToHistory(lastResultBase64, prompt);
+
   result.innerHTML = `
     <img src="${lastResultBase64}" alt="Generated image" />
+    <p class="mobile-tip">📱 手機用戶：長按圖片 → 儲存到照片</p>
     <div class="result-actions">
       <a class="download-btn" href="${lastResultBase64}" download="gpt-image-${Date.now()}.png">↓ 下載圖片</a>
       <button class="continue-btn" onclick="continueEdit()">✎ 繼續修改這張</button>
@@ -370,13 +509,11 @@ function autoDownload() {
 
 function continueEdit() {
   if (!lastResultBase64) { alert('無法取得圖片，請重試'); return; }
-
-  // 把 base64 轉成 File 物件，設為新的上傳圖
   fetch(lastResultBase64)
     .then(r => r.blob())
     .then(blob => {
       const file = new File([blob], 'result.png', { type: 'image/png' });
-      uploadedFile = file; // ← 覆蓋為最新結果
+      uploadedFile = file;
       switchTab('edit');
       setUploadFile(file);
       document.getElementById('prompt').value = '';
@@ -384,10 +521,7 @@ function continueEdit() {
       window.scrollTo({ top: 300, behavior: 'smooth' });
     });
 }
-</script>
-</body>
-</html>
-<script>
+
 async function shareImage() {
   if (!lastResultBase64) return;
   try {
@@ -399,11 +533,7 @@ async function shareImage() {
     } else if (navigator.share) {
       await navigator.share({ title: 'GPT Image 2.0 生成圖片', url: location.href });
     } else {
-      // fallback: download
-      const a = document.createElement('a');
-      a.href = lastResultBase64;
-      a.download = `gpt-image-${Date.now()}.png`;
-      a.click();
+      autoDownload();
       alert('你的瀏覽器不支援分享，已自動下載圖片');
     }
   } catch(e) {
@@ -411,3 +541,5 @@ async function shareImage() {
   }
 }
 </script>
+</body>
+</html>
